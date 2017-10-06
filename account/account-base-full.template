@@ -1,0 +1,900 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Custom Template that creates the intial Account resources (e.g. Roles, Policies, CloudTrail etc",
+    "Metadata": {
+        "AWS::CloudFormation::Interface": {
+            "ParameterGroups": [
+				{
+                    "Label": {
+                        "default": "Names"
+                    },
+                    "Parameters": [
+                        "DepartmentName"						
+                    ]
+                },
+				{
+                    "Label": {
+                        "default": "CloudHealth"
+                    },
+                    "Parameters": [
+                        "AWSConfigBucketName",
+						"AWSConfigLogPrefix",
+						"CloudTrailBucketName",
+						"CloudTrailLogPrefix"
+                    ]
+                }
+			],
+            "ParameterLabels": {
+                "DepartmentName": {
+                    "default": "Department Name"
+                },
+				"AccountName": {
+                    "default": "Account Name"
+                },
+				"AWSConfigBucketName": {
+                    "default": "Config Bucket Name"
+                },
+				"CloudTrailBucketName": {
+                    "default": "CloudTrail Bucket Name"
+                },
+				"AWSConfigLogPrefix": {
+                    "default": "Config Log Prefix"
+                },
+				"CloudTrailLogPrefix": {
+                    "default": "CloudTrail Log Prefix"
+                }
+			}
+		}
+	},
+    "Parameters": {
+        "DepartmentName": {
+            "Default": "AAG",
+            "Description": "This is the Department Name and builds the role names, put all in capitals, e.g. TSG, AAG, ADAPT",
+            "Type": "String"
+        },
+		"AccountName": {
+            "Default": "Sandbox",
+            "Description": "This is the Account Name and builds the rest of the names for resources, for example Sandbox or a CaseCode",
+            "Type": "String"
+        },
+		"AWSConfigBucketName": {
+            "Description": "Enter the AWS Config Logging S3 Bucket for this Account.",
+            "Type": "String"
+        },
+        "CloudTrailBucketName": {
+            "Description": "Enter the CloudTrail Logging S3 Bucket for this Account.",
+            "Type": "String"
+        },
+        "AWSConfigLogPrefix": {
+            "Description": "Enter the AWS Conifg Bucket Logging Prefix (Optional).",
+            "Type": "String"
+        },
+        "CloudTrailLogPrefix": {
+            "Description": "Enter the CloudTrail Logging Prefix (Optional).",
+            "Type": "String"
+        }
+	},
+	"Resources": {
+		"RestrictIAMPolicy": {
+			"Type": "AWS::IAM::ManagedPolicy",
+			"Properties" : {
+				"ManagedPolicyName" : "RestrictBaseIAMRoles",
+				"Description" : "Restricts permissions to base IAM Roles",
+				"PolicyDocument" : {
+					"Version" : "2012-10-17",
+					"Statement": [ 
+						{
+							"Effect" : "Deny",
+							"Action" : [
+								"iam:DeleteRole",
+								"iam:PutRolePolicy"
+							],
+							"Resource" : [
+								{
+									"Fn::Join" : [
+										"", [
+											"arn:aws:iam::",
+											{ "Ref" : "AWS::AccountId" },
+											":role/TSG-MasterAccount-Admin"
+										]
+									]
+								}
+							]
+							
+						},
+						{
+							"Effect": "Deny",
+							"Action": [
+								"iam:CreatePolicyVersion",
+								"iam:DeletePolicy",
+								"iam:SetDefaultPolicyVersion"
+							],
+							"Resource": [
+								{
+									"Fn::Join" : [
+										"", [
+											"arn:aws:iam::",
+											{ "Ref" : "AWS::AccountId" },
+											":policy/RestrictBaseIAMRoles"
+										]
+									]
+								},
+								{
+									"Fn::Join" : [
+										"", [
+											"arn:aws:iam::",
+											{ "Ref" : "AWS::AccountId" },
+											":policy/RestrictBaseInfrastructure*"
+										]
+									]
+								},
+								{
+									"Fn::Join" : [
+										"", [
+											"arn:aws:iam::",
+											{ "Ref" : "AWS::AccountId" },
+											":policy/RequireMFA"
+										]
+									]
+								}
+							]
+						},
+						{
+							"Effect" : "Deny",
+							"Action" : [
+								"cloudformation:DeleteStack",
+								"cloudformation:UpdateStack",
+								"cloudformation:CreateChangeSet",
+								"cloudformation:ExecuteChangeSet"
+							],
+							"Resource" : [
+								{"Ref" : "AWS::StackId"},
+								{
+									"Fn::Join" : [
+										"", [
+											{ "Ref" : "AWS::StackId" },
+											"/*"
+										]
+									]
+								}
+							]
+							
+						}						
+					]
+				}
+			},
+			"DependsOn" : [
+				"RequireMFA"
+			]
+		},
+		"RequireMFA": {
+			"Type": "AWS::IAM::ManagedPolicy",
+			"Properties" : {
+				"ManagedPolicyName" : "RequireMFA",
+				"Description" : "Requires users to log in with MFA, otherwise they wlll not get access",
+				"PolicyDocument": {
+					"Version": "2012-10-17",
+					"Statement":[
+						{
+							"Sid": "AllowAllUsersToListAccounts",
+							"Effect": "Allow",
+							"Action":[
+								"iam:ListAccountAliases",
+								"iam:ListUsers",
+								"iam:GetAccountSummary"
+							],
+							"Resource": "*"
+						},
+						{
+							"Sid": "AllowIndividualUserToSeeAndManageOnlyTheirOwnAccountInformation",
+							"Effect": "Allow",
+							"Action":[
+								"iam:ChangePassword",
+								"iam:CreateAccessKey",
+								"iam:CreateLoginProfile",
+								"iam:DeleteAccessKey",
+								"iam:DeleteLoginProfile",
+								"iam:GetAccountPasswordPolicy",
+								"iam:GetLoginProfile",
+								"iam:ListAccessKeys",
+								"iam:UpdateAccessKey",
+								"iam:UpdateLoginProfile",
+								"iam:ListSigningCertificates",
+								"iam:DeleteSigningCertificate",
+								"iam:UpdateSigningCertificate",
+								"iam:UploadSigningCertificate",
+								"iam:ListSSHPublicKeys",
+								"iam:GetSSHPublicKey",
+								"iam:DeleteSSHPublicKey",
+								"iam:UpdateSSHPublicKey",
+								"iam:UploadSSHPublicKey"
+							],
+							"Resource": {
+									"Fn::Join" : [
+										"", [
+											"arn:aws:iam::",
+											{ "Ref" : "AWS::AccountId" },
+											":user/${aws:username}"
+										]
+									]
+								}
+						},
+						{
+							"Sid": "AllowIndividualUserToListOnlyTheirOwnMFA",
+							"Effect": "Allow",
+							"Action":[
+								"iam:ListVirtualMFADevices",
+								"iam:ListMFADevices"
+							],
+							"Resource":[
+								{
+									"Fn::Join" : [
+										"", [
+											"arn:aws:iam::",
+											{ "Ref" : "AWS::AccountId" },
+											":mfa/*"
+										]
+									]
+								},
+								{
+									"Fn::Join" : [
+										"", [
+											"arn:aws:iam::",
+											{ "Ref" : "AWS::AccountId" },
+											":user/${aws:username}"
+										]
+									]
+								}
+							]
+						},
+						{
+							"Sid": "AllowIndividualUserToManageTheirOwnMFA",
+							"Effect": "Allow",    
+							"Action":[    
+								"iam:CreateVirtualMFADevice",        
+								"iam:DeleteVirtualMFADevice",        
+								"iam:RequestSmsMfaRegistration",        
+								"iam:FinalizeSmsMfaRegistration",        
+								"iam:EnableMFADevice",        
+								"iam:ResyncMFADevice"    
+							],    
+							"Resource":[        
+								{
+									"Fn::Join" : [
+										"", [
+											"arn:aws:iam::",
+											{ "Ref" : "AWS::AccountId" },
+											":mfa/${aws:username}"
+										]
+									]
+								},
+								{
+									"Fn::Join" : [
+										"", [
+											"arn:aws:iam::",
+											{ "Ref" : "AWS::AccountId" },
+											":user/${aws:username}"
+										]
+									]
+								}								
+							]
+						},
+						{
+							"Sid": "AllowIndividualUserToDeactivateOnlyTheirOwnMFAOnlyWhenUsingMFA",
+							"Effect": "Allow",     
+							"Action":[ "iam:DeactivateMFADevice" ],  
+							"Resource":[
+								{
+									"Fn::Join" : [
+										"", [
+											"arn:aws:iam::",
+											{ "Ref" : "AWS::AccountId" },
+											":mfa/${aws:username}"
+										]
+									]
+								},        
+								{
+									"Fn::Join" : [
+										"", [
+											"arn:aws:iam::",
+											{ "Ref" : "AWS::AccountId" },
+											":user/${aws:username}"
+										]
+									]
+								}    
+							],
+							"Condition":{ "Bool": { "aws:MultiFactorAuthPresent": "true" } }
+						},
+						{
+							"Sid": "BlockAnyAccessOtherThanAboveUnlessSignedInWithMFA",
+							"Effect": "Deny",
+							"NotAction": "iam:*",
+							"Resource": "*",
+							"Condition":{ "BoolIfExists":{ "aws:MultiFactorAuthPresent": "false"}}
+						}
+					]
+				}
+			}
+		},
+		"CloudTrailKMSKey": {
+			"Type" : "AWS::KMS::Key",
+			"Properties" : {
+				"Description" : "CloudTrail KMS Key",
+				"Enabled" : "true",
+				"EnableKeyRotation" : "true",
+				"KeyPolicy" : {
+					  "Version": "2012-10-17",
+					  "Id": "Key policy created by CloudTrail",
+					  "Statement": [
+						{
+						  "Sid": "Enable IAM User Permissions",
+						  "Effect": "Allow",
+						  "Principal": {
+								"AWS": {
+									"Fn::Sub": [
+										"arn:aws:iam::${accountId}:root",
+										{
+											"accountId": {
+												"Ref" : "AWS::AccountId"
+											}
+										}
+									]
+								}
+						  },
+						  "Action": "kms:*",
+						  "Resource": "*"
+						},
+						{
+						  "Sid": "Allow CloudTrail to encrypt logs",
+						  "Effect": "Allow",
+						  "Principal": {
+							"Service": "cloudtrail.amazonaws.com"
+						  },
+						  "Action": "kms:GenerateDataKey*",
+						  "Resource": "*",
+						  "Condition": {
+							"StringLike": {
+								"kms:EncryptionContext:aws:cloudtrail:arn": {	
+                                    "Fn::Sub": [
+                                         "arn:aws:cloudtrail:*:${accountId}:trail/*",
+                                        {
+                                            "accountId": {
+                                                "Ref" : "AWS::AccountId"
+                                            }
+                                        }
+                                    ]
+                                }
+							}
+						  }
+						},
+						{
+						  "Sid": "Allow CloudTrail to describe key",
+						  "Effect": "Allow",
+						  "Principal": {
+							"Service": "cloudtrail.amazonaws.com"
+						  },
+						  "Action": "kms:DescribeKey",
+						  "Resource": "*"
+						},
+						{
+						  "Sid": "Allow principals in the account to decrypt log files",
+						  "Effect": "Allow",
+						  "Principal": {
+							"AWS": "*"
+						  },
+						  "Action": [
+							"kms:Decrypt",
+							"kms:ReEncryptFrom"
+						  ],
+						  "Resource": "*",
+						  "Condition": {
+							"StringEquals": {
+								"kms:CallerAccount": {	
+									"Fn::Sub": [
+										"${accountId}",
+										{
+											"accountId": {
+												"Ref" : "AWS::AccountId"
+											}
+										}
+									]
+								}
+							},
+							"StringLike": {
+							  "kms:EncryptionContext:aws:cloudtrail:arn": {	
+                                    "Fn::Sub": [
+                                        "arn:aws:cloudtrail:*:${accountId}:trail/*",
+                                        {
+                                            "accountId": {
+                                                "Ref" : "AWS::AccountId"
+                                            }
+                                        }
+                                    ]
+                                }
+							}
+						  }
+						},
+						{
+						  "Sid": "Allow alias creation during setup",
+						  "Effect": "Allow",
+						  "Principal": {
+							"AWS": "*"
+						  },
+						  "Action": "kms:CreateAlias",
+						  "Resource": "*",
+						  "Condition": {
+							"StringEquals": {
+							  "kms:ViaService": "ec2.us-east-2.amazonaws.com",
+								"kms:CallerAccount":{		
+									"Fn::Sub": [
+										 "${accountId}",
+										{
+											"accountId": {
+												"Ref" : "AWS::AccountId"
+											}
+										}
+									]
+								}
+							}
+						  }
+						},
+						{
+						  "Sid": "Enable cross account log decryption",
+						  "Effect": "Allow",
+						  "Principal": {
+							"AWS": "*"
+						  },
+						  "Action": [
+							"kms:Decrypt",
+							"kms:ReEncryptFrom"
+						  ],
+						  "Resource": "*",
+						  "Condition": {
+							"StringEquals": {
+							  "kms:CallerAccount":{	
+									"Fn::Sub": [
+										 "${accountId}",
+										{
+											"accountId": {
+												"Ref" : "AWS::AccountId"
+											}
+										}
+									]
+								}
+							},
+							"StringLike": {
+							  "kms:EncryptionContext:aws:cloudtrail:arn": {	
+                                    "Fn::Sub": [
+                                        "arn:aws:cloudtrail:*:${accountId}:trail/*",
+                                        {
+                                            "accountId": {
+                                                "Ref" : "AWS::AccountId"
+                                            }
+                                        }
+                                    ]
+                                }
+							}
+						  }
+						}
+					  ]
+					}
+			}
+		},
+		"CloudTrailKeyAlias" : {
+			  "Type" : "AWS::KMS::Alias",
+			  "Properties" : {
+				"AliasName" : "alias/CloudTrailKMS",
+				"TargetKeyId" : {"Ref":"CloudTrailKMSKey"}
+			  }
+		},
+		"CloudTrailBucket" : {
+			"DeletionPolicy" : "Retain",
+			"Type" : "AWS::S3::Bucket",
+			"Properties" : {
+				"BucketName": {
+                    "Ref": "CloudTrailBucketName"
+                },
+				"LifecycleConfiguration" : {
+					"Rules" : [
+					{
+						"Status" : "Enabled",
+						"ExpirationInDays" : "365"
+					}
+				  ]
+				}
+			  }
+		},
+		"CloudTrailBucketPolicy" : {
+		  "Type" : "AWS::S3::BucketPolicy",
+		  "Properties" : {
+			"Bucket" : {"Ref" : "CloudTrailBucket"},
+			"PolicyDocument" : {
+			  "Version" : "2012-10-17",
+			  "Statement" : [
+				{
+				  "Sid" : "AWSCloudTrailAclCheck",
+				  "Effect" : "Allow",
+				  "Principal" : {
+					"Service": "cloudtrail.amazonaws.com"
+				  },
+				  "Action" : "s3:GetBucketAcl",
+				  "Resource" : { "Fn::Join" : ["", ["arn:aws:s3:::", {"Ref" : "CloudTrailBucket"}]]}
+				},
+				{
+				  "Sid" : "AWSCloudTrailWrite",
+				  "Effect" : "Allow",
+				  "Principal" : {
+					"Service": "cloudtrail.amazonaws.com"
+				  },
+				  "Action" : "s3:PutObject",
+				  "Resource" : { "Fn::Join" : ["", ["arn:aws:s3:::", {"Ref" : "CloudTrailBucket"}, "/AWSLogs/", {"Ref" : "AWS::AccountId"}, "/*"]]},
+				  "Condition" : {
+					"StringEquals" : {
+					  "s3:x-amz-acl" : "bucket-owner-full-control"
+					}
+				  }
+				}
+			  ]
+			}
+		  }
+		},
+		"CloudTrail" : {
+			"Type" : "AWS::CloudTrail::Trail",
+			"Properties" : {
+				"IncludeGlobalServiceEvents" : "true",
+				"S3BucketName" : {"Ref" : "CloudTrailBucket"},
+				"IsLogging" : "true",
+				"KMSKeyId" : {
+                    "Ref": "CloudTrailKMSKey"
+                },
+				"TrailName" : {"Ref" : "CloudTrailBucketName"},
+				"IsMultiRegionTrail" : "true"
+			},
+			"DependsOn": [
+				"CloudTrailBucket",
+				"CloudTrailBucketPolicy",
+				"CloudTrailKMSKey"
+			]
+		},
+		"ConfigRecorder": {
+            "Type": "AWS::Config::ConfigurationRecorder",
+            "Properties": {
+                "Name": {
+					"Fn::Join" : [
+						"-", [
+							{ "Ref": "AWSConfigBucketName" },
+							"configrecorder"
+						]
+					]
+				},
+                "RecordingGroup": {
+                    "AllSupported": true,
+                    "IncludeGlobalResourceTypes": true
+                },
+                "RoleARN": {
+                    "Fn::GetAtt": ["ConfigAWSIAM", "Arn"]
+                }
+            }
+        },
+        "ConfigS3Bucket": {
+            "DeletionPolicy": "Retain",
+            "Type": "AWS::S3::Bucket",
+            "Properties": {
+                "BucketName": {
+                    "Ref": "AWSConfigBucketName"
+                }
+            }
+        },
+        "ConfigAWSIAM": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [{
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": ["config.amazonaws.com"]
+                        },
+                        "Action": ["sts:AssumeRole"]
+                    }]
+                },
+                "ManagedPolicyArns": ["arn:aws:iam::aws:policy/service-role/AWSConfigRole"],
+                "Path": "/",
+                "Policies": [{
+                    "PolicyName": "S3-access",
+                    "PolicyDocument": {
+                        "Statement": [
+                            {
+                                "Effect": "Allow",
+                                "Action": ["s3:PutObject"],
+                                "Resource": {
+                                    "Fn::Join": ["", ["arn:aws:s3:::", {
+                                        "Ref": "ConfigS3Bucket"
+                                    }, "/AWSLogs/", {
+                                        "Ref": "AWS::AccountId"
+                                    }, "/*"]]
+                                },
+                                "Condition": {
+                                    "StringLike": {
+                                        "s3:x-amz-acl": "bucket-owner-full-control"
+                                    }
+                                }
+                            }, {
+                                "Effect": "Allow",
+                                "Action": ["s3:GetBucketAcl"],
+                                "Resource": {
+                                    "Fn::Join": ["", ["arn:aws:s3:::", {
+                                        "Ref": "ConfigS3Bucket"
+                                    }]]
+                                }
+                            }
+                        ]
+                    }
+                }],
+				"RoleName": "Account-Base-AWSConfig"
+            }
+        },
+        "ConfigDeliveryChannel": {
+            "Type": "AWS::Config::DeliveryChannel",
+            "Properties": {
+                "S3BucketName": {
+                    "Ref": "ConfigS3Bucket"
+                }
+            }
+        },
+		"ConfigCloudTrailEnabled": {
+			"Type" : "AWS::Config::ConfigRule",
+			"Properties" : {
+				"Description": "Checks whether AWS CloudTrail is enabled in your AWS account. Optionally, you can specify which S3 bucket, SNS topic, and Amazon CloudWatch Logs ARN to use.", 
+				"ConfigRuleName": "cloudtrail-enabled", 
+				"MaximumExecutionFrequency": "TwentyFour_Hours", 
+				"Source": {
+					"Owner": "AWS", 
+					"SourceIdentifier": "CLOUD_TRAIL_ENABLED"
+				}
+			},
+			"DependsOn": "ConfigRecorder"
+		}, 
+		"ConfigInstancesInVPC": {
+			"Type" : "AWS::Config::ConfigRule",
+			"Properties" : {
+				"Description": "Checks whether your EC2 instances belong to a virtual private cloud (VPC). Optionally, you can specify the VPC ID to associate with your instances.", 
+				"ConfigRuleName": "ec2-instances-in-vpc", 
+				"Source": {
+					"Owner": "AWS", 
+					"SourceIdentifier": "INSTANCES_IN_VPC"
+				}, 
+				"InputParameters": "{}", 
+				"Scope": {
+					"ComplianceResourceTypes": [
+						"AWS::EC2::Instance"
+					]
+				}
+			},
+			"DependsOn": "ConfigRecorder"
+		}, 
+		"ConfigEncryptedVolumes": {
+			"Type" : "AWS::Config::ConfigRule",
+			"Properties" : {
+				"Description": "Checks whether EBS volumes that are in an attached state are encrypted. Optionally, you can specify the ID of a KMS key to use to encrypt the volume.", 
+				"ConfigRuleName": "encrypted-volumes", 
+				"Source": {
+					"Owner": "AWS", 
+					"SourceIdentifier": "ENCRYPTED_VOLUMES"
+				}, 
+				"InputParameters": "{}", 
+				"Scope": {
+					"ComplianceResourceTypes": [
+						"AWS::EC2::Volume"
+					]
+				}
+			},
+			"DependsOn": "ConfigRecorder"
+		}, 
+		"ConfigIAMPasswordPolicy": {
+			"Type" : "AWS::Config::ConfigRule",
+			"Properties" : {
+				"Description": "Checks whether the account password policy for IAM users meets the specified requirements.", 
+				"ConfigRuleName": "iam-password-policy", 
+				"MaximumExecutionFrequency": "TwentyFour_Hours", 
+				"Source": {
+					"Owner": "AWS", 
+					"SourceIdentifier": "IAM_PASSWORD_POLICY"
+				}, 
+				"InputParameters": "{\"RequireUppercaseCharacters\":\"true\",\"RequireLowercaseCharacters\":\"true\",\"RequireSymbols\":\"true\",\"RequireNumbers\":\"true\",\"MinimumPasswordLength\":\"9\",\"PasswordReusePrevention\":\"4\",\"MaxPasswordAge\":\"90\"}"
+			},
+			"DependsOn": "ConfigRecorder"
+		}, 
+		"ConfigIAMGroupMembership": {
+			"Type" : "AWS::Config::ConfigRule",
+			"Properties" : {
+				"Description": "Checks whether IAM users are members of at least one IAM group.", 
+				"ConfigRuleName": "iam-user-group-membership-check", 
+				"Source": {
+					"Owner": "AWS", 
+					"SourceIdentifier": "IAM_USER_GROUP_MEMBERSHIP_CHECK"
+				}, 
+				"InputParameters": "{}", 
+				"Scope": {
+					"ComplianceResourceTypes": [
+						"AWS::IAM::User"
+					]
+				}
+			},
+			"DependsOn": "ConfigRecorder"
+		}, 
+		"ConfigNoPoliciesCheck": {
+			"Type" : "AWS::Config::ConfigRule",
+			"Properties" : {
+				"Description": "Checks that none of your IAM users have policies attached. IAM users must inherit permissions from IAM groups or roles.", 
+				"ConfigRuleName": "iam-user-no-policies-check", 
+				"Source": {
+					"Owner": "AWS", 
+					"SourceIdentifier": "IAM_USER_NO_POLICIES_CHECK"
+				}, 
+				"Scope": {
+					"ComplianceResourceTypes": [
+						"AWS::IAM::User"
+					]
+				}
+			},
+			"DependsOn": "ConfigRecorder"
+		}, 
+		"ConfigRDSEncryptedStorage": {
+			"Type" : "AWS::Config::ConfigRule",
+			"Properties" : {
+				"Description": "Checks whether storage encryption is enabled for your RDS DB instances.", 
+				"ConfigRuleName": "rds-storage-encrypted", 
+				"Source": {
+					"Owner": "AWS", 
+					"SourceIdentifier": "RDS_STORAGE_ENCRYPTED"
+				}, 
+				"InputParameters": "{}", 
+				"Scope": {
+					"ComplianceResourceTypes": [
+						"AWS::RDS::DBInstance"
+					]
+				}
+			},
+			"DependsOn": "ConfigRecorder"
+		}, 
+		"ConfigRequiredTags": {
+			"Type" : "AWS::Config::ConfigRule",
+			"Properties" : {
+				"Description": "Checks whether your resources have the tags that you specify. For example, you can check whether your EC2 instances have the 'CostCenter' tag. Separate multiple values with commas.", 
+				"ConfigRuleName": "required-tags", 
+				"Source": {
+					"Owner": "AWS", 
+					"SourceIdentifier": "REQUIRED_TAGS"
+				}, 
+				"InputParameters": "{\"tag1Key\":\"CaseCode\",\"tag2Key\":\"Department\",\"tag3Key\":\"Owner\",\"tag4Key\":\"Tier\",\"tag5Key\":\"Application\"}", 
+				"Scope": {
+					"ComplianceResourceTypes": [
+						"AWS::EC2::CustomerGateway", 
+						"AWS::EC2::Instance", 
+						"AWS::EC2::InternetGateway", 
+						"AWS::EC2::NetworkAcl", 
+						"AWS::EC2::NetworkInterface", 
+						"AWS::EC2::RouteTable", 
+						"AWS::EC2::SecurityGroup", 
+						"AWS::EC2::Subnet", 
+						"AWS::EC2::Volume", 
+						"AWS::EC2::VPC", 
+						"AWS::EC2::VPNConnection", 
+						"AWS::EC2::VPNGateway", 
+						"AWS::ACM::Certificate", 
+						"AWS::RDS::DBInstance", 
+						"AWS::RDS::DBSecurityGroup", 
+						"AWS::RDS::DBSnapshot", 
+						"AWS::RDS::DBSubnetGroup", 
+						"AWS::RDS::EventSubscription", 
+						"AWS::S3::Bucket"
+					]
+				}
+			},
+			"DependsOn": "ConfigRecorder"
+		}, 
+		"ConfigRestrictCommonPorts": {
+			"Type" : "AWS::Config::ConfigRule",
+			"Properties" : {
+				"Description": "Checks whether security groups that are in use disallow unrestricted incoming TCP traffic to the specified ports.", 
+				"ConfigRuleName": "restricted-common-ports", 
+				"Source": {
+					"Owner": "AWS", 
+					"SourceIdentifier": "RESTRICTED_INCOMING_TRAFFIC"
+				}, 
+				"InputParameters": "{\"blockedPort1\":\"20\",\"blockedPort2\":\"21\",\"blockedPort3\":\"3389\",\"blockedPort4\":\"3306\",\"blockedPort5\":\"4333\"}", 
+				"Scope": {
+					"ComplianceResourceTypes": [
+						"AWS::EC2::SecurityGroup"
+					]
+				}
+			},
+			"DependsOn": "ConfigRecorder"
+		},
+		"ConfigRestrictedSSH": {
+			"Type" : "AWS::Config::ConfigRule",
+			"Properties" : {
+				"Description": "Checks whether security groups that are in use disallow unrestricted incoming SSH traffic.", 
+				"ConfigRuleName": "restricted-ssh", 
+				"Source": {
+					"Owner": "AWS", 
+					"SourceIdentifier": "INCOMING_SSH_DISABLED"
+				}, 
+				"Scope": {
+					"ComplianceResourceTypes": [
+						"AWS::EC2::SecurityGroup"
+					]
+				}
+			},
+			"DependsOn": "ConfigRecorder"
+		}, 
+		"ConfigRootMFAEnabled": {
+			"Type" : "AWS::Config::ConfigRule",
+			"Properties" : {
+				"Description": "Checks whether the root user of your AWS account requires multi-factor authentication for console sign-in.", 
+				"ConfigRuleName": "root-account-mfa-enabled", 
+				"MaximumExecutionFrequency": "TwentyFour_Hours", 
+				"Source": {
+					"Owner": "AWS", 
+					"SourceIdentifier": "ROOT_ACCOUNT_MFA_ENABLED"
+				}
+			},
+			"DependsOn": "ConfigRecorder"
+		}, 
+		"ConfigS3PublicRead": {
+			"Type" : "AWS::Config::ConfigRule",
+			"Properties" : {
+				"Description": "Checks that your S3 buckets do not allow public read access. If an S3 bucket policy or bucket ACL allows public read access, the bucket is noncompliant.", 
+				"ConfigRuleName": "s3-bucket-public-read-prohibited", 
+				"Source": {
+					"Owner": "AWS", 
+					"SourceIdentifier": "S3_BUCKET_PUBLIC_READ_PROHIBITED"
+				}, 
+				"InputParameters": "{}", 
+				"Scope": {
+					"ComplianceResourceTypes": [
+						"AWS::S3::Bucket"
+					]
+				}
+			},
+			"DependsOn": "ConfigRecorder"
+		}, 
+		"ConfigS3PublicWrite": {
+			"Type" : "AWS::Config::ConfigRule",
+			"Properties" : {
+				"Description": "Checks that your S3 buckets do not allow public write access. If an S3 bucket policy or bucket ACL allows public write access, the bucket is noncompliant.", 
+				"ConfigRuleName": "s3-bucket-public-write-prohibited", 
+				"Source": {
+					"Owner": "AWS", 
+					"SourceIdentifier": "S3_BUCKET_PUBLIC_WRITE_PROHIBITED"
+				}, 
+				"InputParameters": "{}", 
+				"Scope": {
+					"ComplianceResourceTypes": [
+						"AWS::S3::Bucket"
+					]
+				}
+			},
+			"DependsOn": "ConfigRecorder"
+		}
+	},
+	"Outputs": {
+        "AccountID": {
+            "Description": "AccountID (OwnerID) of this AWS Account",
+            "Value": {
+                "Ref": "AWS::AccountId"
+            }
+        },
+        "CloudHealthRoleARN": {
+            "Description": "CloudHealth Role ARN",
+            "Value": {
+                "Fn::GetAtt": [
+                    "CHTReadRole",
+                    "Arn"
+                ]
+            }
+        }
+	}
+}
+	
